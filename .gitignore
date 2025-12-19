@@ -1,0 +1,32 @@
+# 환경 설정 및 비밀
+.env
+.env.*
+!.env.example
+
+# mTLS 인증서 및 비밀 키
+secrets/
+*.pem
+*.crt
+*.key
+*.ca
+
+# 의존성
+vendor/
+
+# 빌드 출력물
+bin/
+dist/
+*.exe
+
+# IDE 설정
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
