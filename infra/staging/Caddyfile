@@ -1,0 +1,8 @@
+{$DOMAIN} {
+  encode gzip
+
+  @api path /health /meta /v1/*
+  reverse_proxy @api api:8080
+
+  reverse_proxy web:80
+}
