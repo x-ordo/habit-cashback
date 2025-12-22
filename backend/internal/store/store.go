@@ -503,3 +503,161 @@ func (s *Store) IsSessionRevoked(ctx context.Context, userSub string) (bool, err
 	}
 	return true, nil
 }
+
+// ============ Batch Job Operations ============
+
+// BatchResult holds the result of a batch operation
+type BatchResult struct {
+	Processed int
+	Failed    int
+	Errors    []string
+}
+
+// CloseExpiredParticipations marks participations as completed or failed based on end_date
+// Returns the number of participations processed
+func (s *Store) CloseExpiredParticipations(ctx context.Context) (*BatchResult, error) {
+	today := time.Now().Truncate(24 * time.Hour)
+	result := &BatchResult{Errors: []string{}}
+
+	// Find all active participations that have ended
+	const findQ = `
+		SELECT p.id, p.user_id, p.challenge_id, p.proof_count, c.days
+		FROM participation p
+		JOIN challenge c ON p.challenge_id = c.id
+		WHERE p.status = 'active' AND p.end_date < $1
+	`
+	rows, err := s.pool.Query(ctx, findQ, today)
+	if err != nil {
+		return nil, fmt.Errorf("find expired participations: %w", err)
+	}
+	defer rows.Close()
+
+	type expiredPart struct {
+		ID          int64
+		UserID      int64
+		ChallengeID string
+		ProofCount  int
+		Days        int
+	}
+	var expired []expiredPart
+	for rows.Next() {
+		var ep expiredPart
+		if err := rows.Scan(&ep.ID, &ep.UserID, &ep.ChallengeID, &ep.ProofCount, &ep.Days); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("scan: %v", err))
+			continue
+		}
+		expired = append(expired, ep)
+	}
+
+	// Update each participation
+	for _, ep := range expired {
+		newStatus := "failed"
+		if ep.ProofCount >= ep.Days {
+			newStatus = "success"
+		}
+
+		const updateQ = `UPDATE participation SET status = $1, updated_at = NOW() WHERE id = $2`
+		_, err := s.pool.Exec(ctx, updateQ, newStatus, ep.ID)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("update participation %d: %v", ep.ID, err))
+			continue
+		}
+		result.Processed++
+	}
+
+	return result, nil
+}
+
+// UpdateSettlementStatuses updates settlement records based on participation status
+func (s *Store) UpdateSettlementStatuses(ctx context.Context) (*BatchResult, error) {
+	result := &BatchResult{Errors: []string{}}
+
+	// Update settlements based on participation status
+	const updateQ = `
+		UPDATE settlement s
+		SET
+			status = p.status,
+			refundable = (p.status = 'success'),
+			updated_at = NOW()
+		FROM participation p
+		WHERE s.participation_id = p.id
+		AND s.status = 'running'
+		AND p.status IN ('success', 'failed')
+	`
+	tag, err := s.pool.Exec(ctx, updateQ)
+	if err != nil {
+		return nil, fmt.Errorf("update settlements: %w", err)
+	}
+
+	result.Processed = int(tag.RowsAffected())
+	return result, nil
+}
+
+// CleanupExpiredIdempotencyKeys deletes expired idempotency keys
+func (s *Store) CleanupExpiredIdempotencyKeys(ctx context.Context) (*BatchResult, error) {
+	result := &BatchResult{Errors: []string{}}
+
+	const deleteQ = `DELETE FROM idempotency WHERE expires_at < NOW()`
+	tag, err := s.pool.Exec(ctx, deleteQ)
+	if err != nil {
+		return nil, fmt.Errorf("cleanup idempotency: %w", err)
+	}
+
+	result.Processed = int(tag.RowsAffected())
+	return result, nil
+}
+
+// CleanupOldRevokedSessions deletes revoked sessions older than 30 days
+func (s *Store) CleanupOldRevokedSessions(ctx context.Context) (*BatchResult, error) {
+	result := &BatchResult{Errors: []string{}}
+
+	cutoff := time.Now().Add(-30 * 24 * time.Hour)
+	const deleteQ = `DELETE FROM revoked_session WHERE revoked_at < $1`
+	tag, err := s.pool.Exec(ctx, deleteQ, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("cleanup revoked sessions: %w", err)
+	}
+
+	result.Processed = int(tag.RowsAffected())
+	return result, nil
+}
+
+// GetBatchStats returns statistics for batch job monitoring
+type BatchStats struct {
+	ActiveParticipations   int
+	RunningSettlements     int
+	PendingIdempotencyKeys int
+	RevokedSessions        int
+}
+
+func (s *Store) GetBatchStats(ctx context.Context) (*BatchStats, error) {
+	stats := &BatchStats{}
+
+	// Active participations
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM participation WHERE status = 'active'`).Scan(&stats.ActiveParticipations)
+	if err != nil {
+		return nil, fmt.Errorf("count active participations: %w", err)
+	}
+
+	// Running settlements
+	err = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM settlement WHERE status = 'running'`).Scan(&stats.RunningSettlements)
+	if err != nil {
+		return nil, fmt.Errorf("count running settlements: %w", err)
+	}
+
+	// Pending idempotency keys
+	err = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM idempotency WHERE expires_at > NOW()`).Scan(&stats.PendingIdempotencyKeys)
+	if err != nil {
+		return nil, fmt.Errorf("count idempotency keys: %w", err)
+	}
+
+	// Revoked sessions
+	err = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM revoked_session`).Scan(&stats.RevokedSessions)
+	if err != nil {
+		return nil, fmt.Errorf("count revoked sessions: %w", err)
+	}
+
+	return stats, nil
+}
