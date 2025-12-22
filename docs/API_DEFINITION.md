@@ -393,6 +393,12 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 
 **멱등성**: `Idempotency-Key` 헤더 사용 (2분 TTL)
 
+**검증 로직**:
+- **EXIF 검증**: 사진의 EXIF 메타데이터에서 촬영 시간을 추출하여 챌린지 기간 내 촬영 여부 확인
+- **중복 방지**: 이미지 SHA256 해시를 저장하여 동일 사진 재사용 차단
+  - 다른 사용자가 제출한 사진 사용 불가
+  - 본인이 이미 제출한 사진 재사용 불가
+
 **요청 Body (사진 인증)**:
 ```json
 {
@@ -419,9 +425,12 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 ```json
 {
   "ok": true,
-  "status": "accepted"
+  "status": "accepted",
+  "warnings": ["EXIF 데이터를 읽을 수 없습니다"]
 }
 ```
+
+> `warnings` 필드는 EXIF 검증을 통과했지만 경고가 있는 경우에만 포함됩니다.
 
 **에러 응답**:
 
@@ -429,40 +438,49 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 |------|------|------|
 | 400 | `challengeId is required` | 챌린지 ID 누락 |
 | 400 | `imageBase64 or imageHash is required` | 인증 데이터 누락 |
+| 400 | `활성화된 챌린지 참여가 없습니다` | 결제 완료된 참여 없음 |
+| 400 | `인증 실패: 사진이 챌린지 시작 전에 촬영되었습니다` | EXIF 날짜 검증 실패 |
+| 400 | `이미 다른 사용자가 제출한 이미지입니다` | 타인의 사진 사용 시도 |
+| 400 | `동일한 사진으로 이미 인증하셨습니다` | 본인 사진 재사용 시도 |
 | 409 | `duplicate request` | 중복 요청 |
 
 ---
 
 ### 6. 정산 (Settlements)
 
-#### GET /v1/settlements/:challengeId
+#### GET /v1/settlements
 
-정산 상태 조회
+현재 사용자의 전체 정산 내역 조회 (일괄 조회)
 
 **인증**: 필요
-
-**경로 파라미터**:
-
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| challengeId | string | 챌린지 ID |
 
 **응답** (200 OK):
 ```json
 {
-  "challengeId": "bed-0700",
-  "status": "running",
-  "refundable": false,
-  "message": null
+  "items": [
+    {
+      "challengeId": "bed-0700",
+      "status": "running",
+      "refundable": false,
+      "message": "진행중 (1/3일 완료)"
+    },
+    {
+      "challengeId": "walk-7000",
+      "status": "success",
+      "refundable": true,
+      "message": "성공! 환급 예정"
+    }
+  ]
 }
 ```
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| challengeId | string | 챌린지 ID |
-| status | string | `"running"` \| `"success"` \| `"failed"` |
-| refundable | boolean | 환급 가능 여부 |
-| message | string? | 추가 메시지 |
+| items | array | 정산 목록 |
+| items[].challengeId | string | 챌린지 ID |
+| items[].status | string | `"running"` \| `"success"` \| `"failed"` |
+| items[].refundable | boolean | 환급 가능 여부 |
+| items[].message | string? | 진행 상태 메시지 |
 
 **정산 상태**:
 
@@ -471,6 +489,8 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 | running | 챌린지 진행 중 | false |
 | success | 성공 (리워드 지급 대기/완료) | true |
 | failed | 실패 (미지급) | false |
+
+**참고**: 개별 조회 API (`GET /v1/settlements/:challengeId`)는 일괄 조회 API로 대체되었습니다.
 
 ---
 
@@ -749,7 +769,8 @@ navigate("/history");
 
 ## TODO (향후 구현)
 
-- [ ] GET /v1/settlements/:challengeId 백엔드 구현
+- [x] GET /v1/settlements 일괄 조회 API 구현 (완료)
+- [x] PostgreSQL DB 연동 (완료)
 - [ ] 토스페이 결제 SDK 연동
 - [ ] 토스 포인트 프로모션 API 연동
 - [ ] 이미지 EXIF 검증 로직
