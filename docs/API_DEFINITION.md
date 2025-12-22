@@ -435,34 +435,39 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 
 ### 6. 정산 (Settlements)
 
-#### GET /v1/settlements/:challengeId
+#### GET /v1/settlements
 
-정산 상태 조회
+현재 사용자의 전체 정산 내역 조회 (일괄 조회)
 
 **인증**: 필요
-
-**경로 파라미터**:
-
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| challengeId | string | 챌린지 ID |
 
 **응답** (200 OK):
 ```json
 {
-  "challengeId": "bed-0700",
-  "status": "running",
-  "refundable": false,
-  "message": null
+  "items": [
+    {
+      "challengeId": "bed-0700",
+      "status": "running",
+      "refundable": false,
+      "message": "진행중 (1/3일 완료)"
+    },
+    {
+      "challengeId": "walk-7000",
+      "status": "success",
+      "refundable": true,
+      "message": "성공! 환급 예정"
+    }
+  ]
 }
 ```
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| challengeId | string | 챌린지 ID |
-| status | string | `"running"` \| `"success"` \| `"failed"` |
-| refundable | boolean | 환급 가능 여부 |
-| message | string? | 추가 메시지 |
+| items | array | 정산 목록 |
+| items[].challengeId | string | 챌린지 ID |
+| items[].status | string | `"running"` \| `"success"` \| `"failed"` |
+| items[].refundable | boolean | 환급 가능 여부 |
+| items[].message | string? | 진행 상태 메시지 |
 
 **정산 상태**:
 
@@ -471,6 +476,8 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 | running | 챌린지 진행 중 | false |
 | success | 성공 (리워드 지급 대기/완료) | true |
 | failed | 실패 (미지급) | false |
+
+**참고**: 개별 조회 API (`GET /v1/settlements/:challengeId`)는 일괄 조회 API로 대체되었습니다.
 
 ---
 
@@ -749,7 +756,8 @@ navigate("/history");
 
 ## TODO (향후 구현)
 
-- [ ] GET /v1/settlements/:challengeId 백엔드 구현
+- [x] GET /v1/settlements 일괄 조회 API 구현 (완료)
+- [x] PostgreSQL DB 연동 (완료)
 - [ ] 토스페이 결제 SDK 연동
 - [ ] 토스 포인트 프로모션 API 연동
 - [ ] 이미지 EXIF 검증 로직

@@ -9,16 +9,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
-	"strconv"
-	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"habitcashback/internal/store"
 	"habitcashback/internal/toss"
 )
 
@@ -57,6 +58,23 @@ func main() {
 		tossClient = nil
 	} else {
 		tossClient = c
+	}
+
+	// Database connection (optional in local; uses in-memory fallback if not configured)
+	var db *store.Store
+	if dsn := strings.TrimSpace(os.Getenv("DATABASE_URL")); dsn != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if s, err := store.New(ctx); err != nil {
+			log.Printf("[warn] database connection failed: %v (using in-memory fallback)", err)
+			db = nil
+		} else {
+			db = s
+			defer db.Close()
+			log.Printf("[info] database connected")
+		}
+	} else {
+		log.Printf("[info] DATABASE_URL not set, using in-memory mode")
 	}
 
 	mux := http.NewServeMux()
@@ -255,6 +273,22 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 		}
 		writeCORS(w, r, allowedOrigins)
 
+		// Try DB first, fallback to hardcoded
+		if db != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			challenges, err := db.ListChallenges(ctx)
+			if err == nil && len(challenges) > 0 {
+				items := make([]jsonMap, len(challenges))
+				for i, c := range challenges {
+					items[i] = jsonMap{"id": c.ID, "title": c.Title, "days": c.Days, "deposit": c.Deposit, "proofType": c.ProofType}
+				}
+				writeJSON(w, http.StatusOK, jsonMap{"items": items})
+				return
+			}
+		}
+
+		// Fallback to hardcoded
 		writeJSON(w, http.StatusOK, jsonMap{
 			"items": []jsonMap{
 				{"id": "walk-7000", "title": "매일 7,000보 걷기", "days": 3, "deposit": 10000, "proofType": "steps"},
@@ -296,12 +330,43 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 			return
 		}
 
+		// Use DB if available
+		if db != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			claims := mustClaims(r.Context())
+			user, err := db.GetOrCreateUser(ctx, claims.Sub)
+			if err != nil {
+				log.Printf("[error] get/create user: %v", err)
+				writeErr(w, http.StatusInternalServerError, "user creation failed")
+				return
+			}
+
+			orderNo := "pay_" + mustRandomHex(8)
+			payment, err := db.CreatePayment(ctx, user.ID, body.ChallengeID, orderNo, int64(body.Amount))
+			if err != nil {
+				log.Printf("[error] create payment: %v", err)
+				writeErr(w, http.StatusInternalServerError, "payment creation failed")
+				return
+			}
+
+			writeJSON(w, http.StatusOK, jsonMap{
+				"paymentId":   payment.OrderNo,
+				"status":      payment.Status,
+				"challengeId": payment.ChallengeID,
+				"amount":      payment.Amount,
+			})
+			return
+		}
+
+		// Fallback to in-memory
 		paymentID := "pay_" + mustRandomHex(8)
 		writeJSON(w, http.StatusOK, jsonMap{
-			"paymentId":  paymentID,
-			"status":     "created",
+			"paymentId":   paymentID,
+			"status":      "created",
 			"challengeId": body.ChallengeID,
-			"amount":     body.Amount,
+			"amount":      body.Amount,
 		})
 	})))
 
@@ -327,6 +392,23 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 			return
 		}
 
+		// Use DB if available
+		if db != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			payment, err := db.ExecutePayment(ctx, body.PaymentID)
+			if err != nil {
+				log.Printf("[error] execute payment: %v", err)
+				writeErr(w, http.StatusBadRequest, "payment execution failed")
+				return
+			}
+
+			writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": payment.Status, "paymentId": payment.OrderNo})
+			return
+		}
+
+		// Fallback
 		writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": "done", "paymentId": body.PaymentID})
 	})))
 
@@ -368,7 +450,97 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 			return
 		}
 
+		// Use DB if available
+		if db != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			claims := mustClaims(r.Context())
+			user, err := db.GetOrCreateUser(ctx, claims.Sub)
+			if err != nil {
+				log.Printf("[error] get user for proof: %v", err)
+				writeErr(w, http.StatusInternalServerError, "user lookup failed")
+				return
+			}
+
+			// Generate hash from image or use provided hash
+			imageHash := body.ImageHash
+			if imageHash == "" && body.ImageBase64 != "" {
+				sum := sha256.Sum256([]byte(body.ImageBase64))
+				imageHash = fmt.Sprintf("%x", sum[:16])
+			}
+
+			proofType := "photo"
+			if body.ImageHash != "" && body.ImageBase64 == "" {
+				proofType = "steps"
+			}
+
+			_, err = db.SubmitProof(ctx, user.ID, body.ChallengeID, proofType, imageHash)
+			if err != nil {
+				log.Printf("[error] submit proof: %v", err)
+				writeErr(w, http.StatusBadRequest, "proof submission failed: "+err.Error())
+				return
+			}
+
+			writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": "accepted"})
+			return
+		}
+
+		// Fallback
 		writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": "accepted"})
+	})))
+
+	// ---- Settlements (list all for current user)
+	mux.Handle("/v1/settlements", auth(secret, revoked)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if preflight(w, r, allowedOrigins) {
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		writeCORS(w, r, allowedOrigins)
+
+		// Use DB if available
+		if db != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			claims := mustClaims(r.Context())
+			user, err := db.GetUserByTossKey(ctx, claims.Sub)
+			if err != nil {
+				log.Printf("[error] get user for settlements: %v", err)
+				writeErr(w, http.StatusInternalServerError, "user lookup failed")
+				return
+			}
+			if user == nil {
+				// No user found, return empty list
+				writeJSON(w, http.StatusOK, jsonMap{"items": []jsonMap{}})
+				return
+			}
+
+			settlements, err := db.ListSettlementsByUser(ctx, user.ID)
+			if err != nil {
+				log.Printf("[error] list settlements: %v", err)
+				writeErr(w, http.StatusInternalServerError, "settlements lookup failed")
+				return
+			}
+
+			items := make([]jsonMap, len(settlements))
+			for i, s := range settlements {
+				items[i] = jsonMap{
+					"challengeId": s.ChallengeID,
+					"status":      s.Status,
+					"refundable":  s.Refundable,
+					"message":     s.Message,
+				}
+			}
+			writeJSON(w, http.StatusOK, jsonMap{"items": items})
+			return
+		}
+
+		// Fallback: return empty list
+		writeJSON(w, http.StatusOK, jsonMap{"items": []jsonMap{}})
 	})))
 
 	// Global wrapper (security headers + req id + rate limit + log)
