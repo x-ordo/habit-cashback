@@ -10,23 +10,61 @@ secrets/
 *.key
 *.ca
 
-# 의존성
+# Go
 vendor/
-
-# 빌드 출력물
 bin/
-dist/
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+
+# Node.js / Frontend
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+.npm
+.pnpm-store/
+.yarn/
 
 # IDE 설정
 .idea/
 .vscode/
 *.swp
 *.swo
+*.sublime-*
 
 # OS 파일
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# 로그
+# 로그 및 임시 파일
 *.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+
+# 테스트 커버리지
+coverage/
+*.cover
+*.coverage
+.nyc_output/
+htmlcov/
+
+# Docker
+docker-compose.override.yml

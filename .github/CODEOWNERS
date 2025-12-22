@@ -1,0 +1,21 @@
+# CODEOWNERS
+# 이 파일은 코드 리뷰어를 자동으로 지정합니다.
+
+# 전체 리포지토리
+* @Prometheus-P
+
+# Frontend
+/frontend/ @Prometheus-P
+
+# Backend
+/backend/ @Prometheus-P
+
+# Infrastructure
+/infra/ @Prometheus-P
+
+# Documentation
+*.md @Prometheus-P
+/docs/ @Prometheus-P
+
+# GitHub configurations
+/.github/ @Prometheus-P
