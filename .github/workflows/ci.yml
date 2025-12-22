@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, "release/*"]
   pull_request:
     branches: [main, dev]
 
@@ -55,10 +55,13 @@ jobs:
 
       - name: Configure npm registry
         run: |
-          echo "@toss-design-system:registry=https://npm.pkg.github.com" >> .npmrc
-          echo "@apps-in-toss:registry=https://npm.pkg.github.com" >> .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
-        if: ${{ secrets.NPM_TOKEN != '' }}
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "@toss-design-system:registry=https://npm.pkg.github.com" >> .npmrc
+            echo "@apps-in-toss:registry=https://npm.pkg.github.com" >> .npmrc
+            echo "//npm.pkg.github.com/:_authToken=$NPM_TOKEN" >> .npmrc
+          fi
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Install dependencies
         run: npm install
