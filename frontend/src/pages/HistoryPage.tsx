@@ -39,8 +39,9 @@ export default function HistoryPage() {
         // Use batch API for better performance
         const res = await apiGet<SettlementsResponse>("/v1/settlements");
         setItems(res.items || []);
-      } catch (e: any) {
-        setErr(e?.message || "불러오기 실패");
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "불러오기 실패";
+        setErr(message);
       } finally {
         setLoading(false);
       }

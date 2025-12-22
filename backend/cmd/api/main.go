@@ -134,7 +134,7 @@ func main() {
 			AuthorizationCode string `json:"authorizationCode"`
 			Referrer          string `json:"referrer"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid json body")
 			return
 		}
@@ -322,7 +322,7 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 			ChallengeID string `json:"challengeId"`
 			Amount      int    `json:"amount"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid json body")
 			return
 		}
@@ -384,7 +384,7 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 		var body struct {
 			PaymentID string `json:"paymentId"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid json body")
 			return
 		}
@@ -437,7 +437,7 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 			ImageBase64 string `json:"imageBase64"`
 			ImageHash   string `json:"imageHash"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 10<<20)).Decode(&body); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid json body")
 			return
 		}
@@ -700,7 +700,11 @@ func signSession(secret, userID string, ttl time.Duration) string {
 		Iat: now.Unix(),
 		Exp: now.Add(ttl).Unix(),
 	}
-	b, _ := json.Marshal(c)
+	b, err := json.Marshal(c)
+	if err != nil {
+		log.Printf("[error] signSession marshal failed: %v", err)
+		return ""
+	}
 	payload := base64.RawURLEncoding.EncodeToString(b)
 	sig := hmacSHA256(secret, payload)
 	return "sv1." + payload + "." + sig

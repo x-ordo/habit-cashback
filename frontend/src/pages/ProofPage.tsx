@@ -42,8 +42,9 @@ export default function ProofPage() {
 
       setMsg("인증 완료. 정산 대기 중입니다.");
       setTimeout(() => nav("/history"), 500);
-    } catch (e: any) {
-      setMsg(e?.message || "인증 실패");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "인증 실패";
+      setMsg(message);
     } finally {
       setSubmitting(false);
     }

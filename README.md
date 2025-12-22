@@ -19,12 +19,32 @@
 
 ```
 habit-cashback/
-├── frontend/          # React WebView 앱
-├── backend/           # Go API 서버
-├── infra/             # 인프라 설정 (Docker, Caddy)
-├── scripts/           # 유틸리티 스크립트
-├── docs/              # 문서
-└── db/                # 데이터베이스 스키마
+├── frontend/                # React WebView 앱
+│   ├── src/
+│   │   ├── app/            # App entry, Auth wrapper
+│   │   ├── components/     # 공통 컴포넌트 (TopBar, BottomCTA 등)
+│   │   ├── pages/          # 페이지 컴포넌트 (Login, Home, Proof 등)
+│   │   ├── lib/            # API, 스토리지, 유틸리티
+│   │   └── styles/         # 스타일시트
+│   └── granite.config.ts   # Apps in Toss 배포 설정
+├── backend/                 # Go API 서버
+│   ├── cmd/
+│   │   ├── api/            # HTTP API 서버
+│   │   └── worker/         # 백그라운드 작업 워커
+│   └── internal/
+│       ├── proof/          # 인증 검증 로직 (EXIF 등)
+│       ├── store/          # PostgreSQL 데이터 접근
+│       └── toss/           # Apps in Toss mTLS 클라이언트
+├── infra/                   # 인프라 설정
+│   ├── staging/            # 스테이징 Docker Compose
+│   └── prod/               # 프로덕션 Docker Compose
+├── scripts/                 # 유틸리티 스크립트
+├── docs/                    # 프로젝트 문서
+├── db/                      # 데이터베이스 마이그레이션
+│   └── migrations/         # SQL 마이그레이션 파일
+└── .github/                 # GitHub 설정
+    ├── workflows/          # CI/CD 워크플로우
+    └── ISSUE_TEMPLATE/     # 이슈 템플릿
 ```
 
 ## Getting Started
