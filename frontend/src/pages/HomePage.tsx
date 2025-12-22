@@ -19,8 +19,9 @@ export default function HomePage() {
       try {
         const res = await apiGet<Resp>("/v1/challenges");
         if (res?.items?.length) setItems(res.items);
-      } catch (e: any) {
-        setErr(e?.message || null);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "알 수 없는 오류";
+        setErr(message);
       }
     })();
   }, []);

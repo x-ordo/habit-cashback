@@ -46,8 +46,9 @@ export default function LoginPage() {
         nav("/challenges");
         return;
       }
-    } catch (e: any) {
-      setErr(e?.message ?? "로그인에 실패했습니다.");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "로그인에 실패했습니다.";
+      setErr(message);
     } finally {
       setLoading(false);
     }

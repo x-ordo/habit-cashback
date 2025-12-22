@@ -129,7 +129,10 @@ func (c *Client) GenerateUserToken(ctx context.Context, authorizationCode, refer
 		return nil, errors.New("authorizationCode is required")
 	}
 
-	b, _ := json.Marshal(payload)
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api-partner/v1/apps-in-toss/user/oauth2/generate-token", bytes.NewReader(b))
 	if err != nil {
 		return nil, err
@@ -142,7 +145,10 @@ func (c *Client) GenerateUserToken(ctx context.Context, authorizationCode, refer
 	}
 	defer resp.Body.Close()
 
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("apps-in-toss api status=%d body=%s", resp.StatusCode, string(raw))
 	}
@@ -179,7 +185,10 @@ func (c *Client) LoginMe(ctx context.Context, accessToken string) (*LoginMeSucce
 	}
 	defer resp.Body.Close()
 
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("apps-in-toss api status=%d body=%s", resp.StatusCode, string(raw))
 	}
