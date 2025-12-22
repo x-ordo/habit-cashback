@@ -48,6 +48,7 @@ func main() {
 	// Idempotency and simple rate limiting (MVP hardening)
 	idem := newIdemStore()
 	rl := newRateLimiter(120, time.Minute) // 120 req/min per IP
+	revoked := newRevokedStore()
 
 	// Apps in Toss mTLS client (optional in local; required in staging/prod)
 	var tossClient *toss.Client
