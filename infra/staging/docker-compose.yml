@@ -1,18 +1,51 @@
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${DB_USER:-habitcashback}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+      POSTGRES_DB: "${DB_NAME:-habitcashback}"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ../../db/migrations:/docker-entrypoint-initdb.d:ro
+    networks: [appnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-habitcashback}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/habitcashback-api:${IMAGE_TAG}
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
+      DATABASE_URL: "postgres://${DB_USER:-habitcashback}:${DB_PASSWORD}@db:5432/${DB_NAME:-habitcashback}?sslmode=disable"
+      SESSION_SECRET: "${SESSION_SECRET}"
       AIT_TOSS_BASE_URL: "https://apps-in-toss-api.toss.im"
       AIT_MTLS_CERT_FILE: "/run/secrets/ait_mtls_cert.pem"
       AIT_MTLS_KEY_FILE: "/run/secrets/ait_mtls_key.pem"
       PORT: "8080"
       APP_ENV: "staging"
-      STUB_TOKEN: "stub-user-token"
+      ALLOW_ORIGIN: "${ALLOW_ORIGIN:-*}"
       AIT_UNLINK_BASIC_AUTH: "${AIT_UNLINK_BASIC_AUTH}"
     volumes:
       - ./secrets/ait_mtls_cert.pem:/run/secrets/ait_mtls_cert.pem:ro
       - ./secrets/ait_mtls_key.pem:/run/secrets/ait_mtls_key.pem:ro
+    networks: [appnet]
+
+  worker:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/habitcashback-worker:${IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://${DB_USER:-habitcashback}:${DB_PASSWORD}@db:5432/${DB_NAME:-habitcashback}?sslmode=disable"
+      TZ: "Asia/Seoul"
     networks: [appnet]
 
   web:
@@ -38,5 +71,6 @@ networks:
   appnet:
 
 volumes:
+  db_data:
   caddy_data:
   caddy_config:
