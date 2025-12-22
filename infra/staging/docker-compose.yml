@@ -1,0 +1,42 @@
+services:
+  api:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/habitcashback-api:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      AIT_TOSS_BASE_URL: "https://apps-in-toss-api.toss.im"
+      AIT_MTLS_CERT_FILE: "/run/secrets/ait_mtls_cert.pem"
+      AIT_MTLS_KEY_FILE: "/run/secrets/ait_mtls_key.pem"
+      PORT: "8080"
+      APP_ENV: "staging"
+      STUB_TOKEN: "stub-user-token"
+      AIT_UNLINK_BASIC_AUTH: "${AIT_UNLINK_BASIC_AUTH}"
+    volumes:
+      - ./secrets/ait_mtls_cert.pem:/run/secrets/ait_mtls_cert.pem:ro
+      - ./secrets/ait_mtls_key.pem:/run/secrets/ait_mtls_key.pem:ro
+    networks: [appnet]
+
+  web:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/habitcashback-web:${IMAGE_TAG}
+    restart: unless-stopped
+    networks: [appnet]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: "${STAGING_DOMAIN}"
+    networks: [appnet]
+
+networks:
+  appnet:
+
+volumes:
+  caddy_data:
+  caddy_config:
