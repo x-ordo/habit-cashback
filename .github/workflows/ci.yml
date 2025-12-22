@@ -133,21 +133,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Extract metadata for Web
-        id: meta-web
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-
-      - name: Build and push Web image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          push: true
-          tags: ${{ steps.meta-web.outputs.tags }}
-          labels: ${{ steps.meta-web.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # Web image build is disabled until NPM_TOKEN is configured
+      # Toss Design System packages require private registry access
+      # To enable: set NPM_TOKEN secret and update frontend/Dockerfile
