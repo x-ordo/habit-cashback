@@ -393,6 +393,12 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 
 **멱등성**: `Idempotency-Key` 헤더 사용 (2분 TTL)
 
+**검증 로직**:
+- **EXIF 검증**: 사진의 EXIF 메타데이터에서 촬영 시간을 추출하여 챌린지 기간 내 촬영 여부 확인
+- **중복 방지**: 이미지 SHA256 해시를 저장하여 동일 사진 재사용 차단
+  - 다른 사용자가 제출한 사진 사용 불가
+  - 본인이 이미 제출한 사진 재사용 불가
+
 **요청 Body (사진 인증)**:
 ```json
 {
@@ -419,9 +425,12 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 ```json
 {
   "ok": true,
-  "status": "accepted"
+  "status": "accepted",
+  "warnings": ["EXIF 데이터를 읽을 수 없습니다"]
 }
 ```
+
+> `warnings` 필드는 EXIF 검증을 통과했지만 경고가 있는 경우에만 포함됩니다.
 
 **에러 응답**:
 
@@ -429,6 +438,10 @@ GET /v1/auth/toss/unlink-callback?userKey=12345678&referrer=DEFAULT
 |------|------|------|
 | 400 | `challengeId is required` | 챌린지 ID 누락 |
 | 400 | `imageBase64 or imageHash is required` | 인증 데이터 누락 |
+| 400 | `활성화된 챌린지 참여가 없습니다` | 결제 완료된 참여 없음 |
+| 400 | `인증 실패: 사진이 챌린지 시작 전에 촬영되었습니다` | EXIF 날짜 검증 실패 |
+| 400 | `이미 다른 사용자가 제출한 이미지입니다` | 타인의 사진 사용 시도 |
+| 400 | `동일한 사진으로 이미 인증하셨습니다` | 본인 사진 재사용 시도 |
 | 409 | `duplicate request` | 중복 요청 |
 
 ---

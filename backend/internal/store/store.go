@@ -137,6 +137,42 @@ func (s *Store) GetChallenge(ctx context.Context, id string) (*Challenge, error)
 	return &c, nil
 }
 
+// ============ Participation Operations ============
+
+type Participation struct {
+	ID          int64
+	UserID      int64
+	ChallengeID string
+	PaymentID   int64
+	Status      string
+	StartDate   time.Time
+	EndDate     time.Time
+	ProofCount  int
+	CreatedAt   time.Time
+}
+
+// GetActiveParticipation returns the active participation for a user and challenge
+func (s *Store) GetActiveParticipation(ctx context.Context, userID int64, challengeID string) (*Participation, error) {
+	today := time.Now().Truncate(24 * time.Hour)
+	const q = `
+		SELECT id, user_id, challenge_id, payment_id, status, start_date, end_date, proof_count, created_at
+		FROM participation
+		WHERE user_id = $1 AND challenge_id = $2 AND status = 'active'
+		AND start_date <= $3 AND end_date >= $3
+		LIMIT 1
+	`
+	var p Participation
+	err := s.pool.QueryRow(ctx, q, userID, challengeID, today).
+		Scan(&p.ID, &p.UserID, &p.ChallengeID, &p.PaymentID, &p.Status, &p.StartDate, &p.EndDate, &p.ProofCount, &p.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get active participation: %w", err)
+	}
+	return &p, nil
+}
+
 // ============ Payment Operations ============
 
 type Payment struct {
@@ -259,6 +295,47 @@ type Proof struct {
 	ImageHash       string
 	Status          string
 	CreatedAt       time.Time
+}
+
+// CheckDuplicateProofHash checks if an image hash has been used before by any user
+// Returns the userID and challengeID of the existing proof if found
+func (s *Store) CheckDuplicateProofHash(ctx context.Context, imageHash string, excludeUserID int64) (*Proof, error) {
+	const q = `
+		SELECT id, participation_id, user_id, challenge_id, proof_date, proof_type, image_hash, status, created_at
+		FROM proof
+		WHERE image_hash = $1 AND user_id != $2 AND status = 'accepted'
+		LIMIT 1
+	`
+	var p Proof
+	err := s.pool.QueryRow(ctx, q, imageHash, excludeUserID).
+		Scan(&p.ID, &p.ParticipationID, &p.UserID, &p.ChallengeID, &p.ProofDate, &p.ProofType, &p.ImageHash, &p.Status, &p.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil // No duplicate found
+	}
+	if err != nil {
+		return nil, fmt.Errorf("check duplicate hash: %w", err)
+	}
+	return &p, nil
+}
+
+// CheckSameUserDuplicateHash checks if the same user has already used this image hash
+func (s *Store) CheckSameUserDuplicateHash(ctx context.Context, imageHash string, userID int64) (*Proof, error) {
+	const q = `
+		SELECT id, participation_id, user_id, challenge_id, proof_date, proof_type, image_hash, status, created_at
+		FROM proof
+		WHERE image_hash = $1 AND user_id = $2 AND status = 'accepted'
+		LIMIT 1
+	`
+	var p Proof
+	err := s.pool.QueryRow(ctx, q, imageHash, userID).
+		Scan(&p.ID, &p.ParticipationID, &p.UserID, &p.ChallengeID, &p.ProofDate, &p.ProofType, &p.ImageHash, &p.Status, &p.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil // No duplicate found
+	}
+	if err != nil {
+		return nil, fmt.Errorf("check same user duplicate: %w", err)
+	}
+	return &p, nil
 }
 
 // SubmitProof creates a new proof record

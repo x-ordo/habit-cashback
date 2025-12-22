@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"habitcashback/internal/proof"
 	"habitcashback/internal/store"
 	"habitcashback/internal/toss"
 )
@@ -463,16 +464,71 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 				return
 			}
 
-			// Generate hash from image or use provided hash
-			imageHash := body.ImageHash
-			if imageHash == "" && body.ImageBase64 != "" {
-				sum := sha256.Sum256([]byte(body.ImageBase64))
-				imageHash = fmt.Sprintf("%x", sum[:16])
-			}
-
 			proofType := "photo"
+			var imageHash string
+			var validationWarnings []string
+
 			if body.ImageHash != "" && body.ImageBase64 == "" {
+				// Steps proof - trust the provided hash
 				proofType = "steps"
+				result, err := proof.ValidateStepsProof(body.ImageHash)
+				if err != nil {
+					writeErr(w, http.StatusBadRequest, "invalid steps proof: "+err.Error())
+					return
+				}
+				imageHash = result.ImageHash
+			} else {
+				// Photo proof - validate EXIF and generate hash
+				participation, err := db.GetActiveParticipation(ctx, user.ID, body.ChallengeID)
+				if err != nil {
+					log.Printf("[error] get participation: %v", err)
+					writeErr(w, http.StatusInternalServerError, "participation lookup failed")
+					return
+				}
+				if participation == nil {
+					writeErr(w, http.StatusBadRequest, "활성화된 챌린지 참여가 없습니다")
+					return
+				}
+
+				// Validate photo with EXIF check
+				result, err := proof.ValidatePhotoProof(body.ImageBase64, participation.StartDate, participation.EndDate)
+				if err != nil {
+					writeErr(w, http.StatusBadRequest, "invalid image: "+err.Error())
+					return
+				}
+
+				// Check EXIF validation result
+				if !result.Valid {
+					writeErr(w, http.StatusBadRequest, "인증 실패: "+strings.Join(result.Errors, ", "))
+					return
+				}
+
+				imageHash = result.ImageHash
+				validationWarnings = result.Warnings
+
+				// Check for duplicate hash (same image used by another user)
+				duplicate, err := db.CheckDuplicateProofHash(ctx, imageHash, user.ID)
+				if err != nil {
+					log.Printf("[error] check duplicate: %v", err)
+					writeErr(w, http.StatusInternalServerError, "duplicate check failed")
+					return
+				}
+				if duplicate != nil {
+					writeErr(w, http.StatusBadRequest, "이미 다른 사용자가 제출한 이미지입니다")
+					return
+				}
+
+				// Check if same user already used this exact image
+				sameUserDup, err := db.CheckSameUserDuplicateHash(ctx, imageHash, user.ID)
+				if err != nil {
+					log.Printf("[error] check same user duplicate: %v", err)
+					writeErr(w, http.StatusInternalServerError, "duplicate check failed")
+					return
+				}
+				if sameUserDup != nil {
+					writeErr(w, http.StatusBadRequest, "동일한 사진으로 이미 인증하셨습니다")
+					return
+				}
 			}
 
 			_, err = db.SubmitProof(ctx, user.ID, body.ChallengeID, proofType, imageHash)
@@ -482,11 +538,15 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 				return
 			}
 
-			writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": "accepted"})
+			response := jsonMap{"ok": true, "status": "accepted"}
+			if len(validationWarnings) > 0 {
+				response["warnings"] = validationWarnings
+			}
+			writeJSON(w, http.StatusOK, response)
 			return
 		}
 
-		// Fallback
+		// Fallback (in-memory mode)
 		writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": "accepted"})
 	})))
 
