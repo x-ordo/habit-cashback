@@ -8,6 +8,12 @@ export default defineConfig({
     icon: process.env.AIT_ICON_URL ?? "", // 콘솔에 업로드한 아이콘 URL (선택)
     bridgeColorMode: "basic",
   },
+  enableTossPay: true, // 토스페이 결제 활성화
+  navigationBar: {
+    backgroundColor: "#FFFFFF",
+    titleColor: "#191F28",
+    type: "default",
+  },
   web: {
     host: "localhost",
     port: 5173,

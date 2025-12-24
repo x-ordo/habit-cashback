@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"habitcashback/internal/payment"
 	"habitcashback/internal/proof"
 	"habitcashback/internal/store"
 	"habitcashback/internal/toss"
@@ -76,6 +77,22 @@ func main() {
 		}
 	} else {
 		log.Printf("[info] DATABASE_URL not set, using in-memory mode")
+	}
+
+	// Payment service (Mock for local/test, TossPay for staging/prod)
+	var paymentSvc payment.Service
+	if payment.IsMockEnvironment() {
+		paymentSvc = payment.NewMockService()
+		log.Printf("[info] using mock payment service (APP_ENV=%s)", appEnv)
+	} else {
+		// Try to create TossPay client
+		if tpc, err := toss.NewTossPayClientFromEnv(); err != nil {
+			log.Printf("[warn] TossPay client creation failed: %v (falling back to mock)", err)
+			paymentSvc = payment.NewMockService()
+		} else {
+			paymentSvc = tpc
+			log.Printf("[info] using TossPay payment service (live mode)")
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -331,11 +348,26 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 			return
 		}
 
-		// Use DB if available
-		if db != nil {
-			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			defer cancel()
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
 
+		// Get challenge info for product description
+		var productDesc string
+		if db != nil {
+			if ch, err := db.GetChallenge(ctx, body.ChallengeID); err == nil && ch != nil {
+				productDesc = ch.Title + " 참가비"
+			}
+		}
+		if productDesc == "" {
+			productDesc = "습관환급 " + body.ChallengeID + " 참가비"
+		}
+
+		// Generate order number
+		orderNo := "pay_" + mustRandomHex(8)
+
+		// Create payment in DB first (if available)
+		var dbPaymentID int64
+		if db != nil {
 			claims := mustClaims(r.Context())
 			user, err := db.GetOrCreateUser(ctx, claims.Sub)
 			if err != nil {
@@ -344,30 +376,42 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 				return
 			}
 
-			orderNo := "pay_" + mustRandomHex(8)
-			payment, err := db.CreatePayment(ctx, user.ID, body.ChallengeID, orderNo, int64(body.Amount))
+			dbPayment, err := db.CreatePayment(ctx, user.ID, body.ChallengeID, orderNo, int64(body.Amount))
 			if err != nil {
 				log.Printf("[error] create payment: %v", err)
 				writeErr(w, http.StatusInternalServerError, "payment creation failed")
 				return
 			}
+			dbPaymentID = dbPayment.ID
+		}
 
-			writeJSON(w, http.StatusOK, jsonMap{
-				"paymentId":   payment.OrderNo,
-				"status":      payment.Status,
-				"challengeId": payment.ChallengeID,
-				"amount":      payment.Amount,
-			})
+		// Call payment service to get payToken
+		payResp, err := paymentSvc.CreatePayment(ctx, payment.CreateRequest{
+			OrderNo:     orderNo,
+			ProductDesc: productDesc,
+			Amount:      int64(body.Amount),
+		})
+		if err != nil {
+			log.Printf("[error] payment service create: %v", err)
+			writeErr(w, http.StatusInternalServerError, "payment creation failed")
 			return
 		}
 
-		// Fallback to in-memory
-		paymentID := "pay_" + mustRandomHex(8)
+		// Store payToken in DB
+		if db != nil && dbPaymentID > 0 && payResp.PayToken != "" {
+			if err := db.UpdatePaymentPayToken(ctx, dbPaymentID, payResp.PayToken); err != nil {
+				log.Printf("[warn] failed to store payToken: %v", err)
+			}
+		}
+
 		writeJSON(w, http.StatusOK, jsonMap{
-			"paymentId":   paymentID,
+			"paymentId":   dbPaymentID,
+			"orderNo":     orderNo,
+			"payToken":    payResp.PayToken,
 			"status":      "created",
 			"challengeId": body.ChallengeID,
 			"amount":      body.Amount,
+			"mode":        payResp.Mode,
 		})
 	})))
 
@@ -382,35 +426,74 @@ mux.HandleFunc("/v1/auth/toss/unlink-callback", func(w http.ResponseWriter, r *h
 		writeCORS(w, r, allowedOrigins)
 
 		var body struct {
-			PaymentID string `json:"paymentId"`
+			PaymentID int64 `json:"paymentId"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid json body")
 			return
 		}
-		if strings.TrimSpace(body.PaymentID) == "" {
+		if body.PaymentID <= 0 {
 			writeErr(w, http.StatusBadRequest, "paymentId is required")
 			return
 		}
 
-		// Use DB if available
-		if db != nil {
-			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			defer cancel()
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
 
-			payment, err := db.ExecutePayment(ctx, body.PaymentID)
+		// Get payment from DB to retrieve payToken
+		if db == nil {
+			// Fallback for in-memory mode
+			writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": "done", "paymentId": body.PaymentID})
+			return
+		}
+
+		dbPayment, err := db.GetPaymentByID(ctx, body.PaymentID)
+		if err != nil || dbPayment == nil {
+			log.Printf("[error] get payment: %v", err)
+			writeErr(w, http.StatusBadRequest, "payment not found")
+			return
+		}
+
+		// Verify user owns this payment
+		claims := mustClaims(r.Context())
+		user, err := db.GetUserByTossKey(ctx, claims.Sub)
+		if err != nil || user == nil || user.ID != dbPayment.UserID {
+			writeErr(w, http.StatusForbidden, "not authorized")
+			return
+		}
+
+		// Execute payment via payment service (if not mock mode or has payToken)
+		if dbPayment.PayToken != "" {
+			execResp, err := paymentSvc.ExecutePayment(ctx, dbPayment.PayToken)
 			if err != nil {
-				log.Printf("[error] execute payment: %v", err)
+				log.Printf("[error] payment service execute: %v", err)
 				writeErr(w, http.StatusBadRequest, "payment execution failed")
 				return
 			}
 
-			writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": payment.Status, "paymentId": payment.OrderNo})
+			// Store TossPay response
+			if execResp.TxID != "" {
+				respJSON, _ := json.Marshal(execResp)
+				if err := db.UpdatePaymentTossPayResponse(ctx, body.PaymentID, execResp.TxID, respJSON); err != nil {
+					log.Printf("[warn] failed to store tosspay response: %v", err)
+				}
+			}
+		}
+
+		// Update DB payment status and create participation
+		dbPayment, err = db.ExecutePaymentByID(ctx, body.PaymentID)
+		if err != nil {
+			log.Printf("[error] execute payment in DB: %v", err)
+			writeErr(w, http.StatusBadRequest, "payment execution failed")
 			return
 		}
 
-		// Fallback
-		writeJSON(w, http.StatusOK, jsonMap{"ok": true, "status": "done", "paymentId": body.PaymentID})
+		writeJSON(w, http.StatusOK, jsonMap{
+			"ok":        true,
+			"status":    dbPayment.Status,
+			"paymentId": dbPayment.ID,
+			"orderNo":   dbPayment.OrderNo,
+		})
 	})))
 
 	mux.Handle("/v1/proofs/submit", auth(secret, revoked)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

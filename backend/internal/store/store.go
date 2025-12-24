@@ -202,8 +202,53 @@ func (s *Store) CreatePayment(ctx context.Context, userID int64, challengeID, or
 	return &p, nil
 }
 
-// ExecutePayment updates payment status to 'done' and creates participation
+// UpdatePaymentPayToken updates the pay_token for a payment
+func (s *Store) UpdatePaymentPayToken(ctx context.Context, paymentID int64, payToken string) error {
+	const q = `UPDATE payment SET pay_token = $1, updated_at = NOW() WHERE id = $2`
+	_, err := s.pool.Exec(ctx, q, payToken, paymentID)
+	if err != nil {
+		return fmt.Errorf("update pay_token: %w", err)
+	}
+	return nil
+}
+
+// GetPaymentByID returns a payment by ID
+func (s *Store) GetPaymentByID(ctx context.Context, paymentID int64) (*Payment, error) {
+	const q = `SELECT id, user_id, challenge_id, order_no, COALESCE(pay_token, ''), amount, status, created_at FROM payment WHERE id = $1`
+	var p Payment
+	err := s.pool.QueryRow(ctx, q, paymentID).
+		Scan(&p.ID, &p.UserID, &p.ChallengeID, &p.OrderNo, &p.PayToken, &p.Amount, &p.Status, &p.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get payment by id: %w", err)
+	}
+	return &p, nil
+}
+
+// UpdatePaymentTossPayResponse updates the payment with TossPay response data
+func (s *Store) UpdatePaymentTossPayResponse(ctx context.Context, paymentID int64, pgTxID string, rawJSON []byte) error {
+	const q = `UPDATE payment SET pg_tx_id = $1, raw_json = $2, updated_at = NOW() WHERE id = $3`
+	_, err := s.pool.Exec(ctx, q, pgTxID, rawJSON, paymentID)
+	if err != nil {
+		return fmt.Errorf("update tosspay response: %w", err)
+	}
+	return nil
+}
+
+// ExecutePayment updates payment status to 'done' and creates participation (by orderNo)
 func (s *Store) ExecutePayment(ctx context.Context, orderNo string) (*Payment, error) {
+	return s.executePaymentInternal(ctx, "order_no", orderNo)
+}
+
+// ExecutePaymentByID updates payment status to 'done' and creates participation (by ID)
+func (s *Store) ExecutePaymentByID(ctx context.Context, paymentID int64) (*Payment, error) {
+	return s.executePaymentInternal(ctx, "id", paymentID)
+}
+
+// executePaymentInternal is the shared implementation for ExecutePayment and ExecutePaymentByID
+func (s *Store) executePaymentInternal(ctx context.Context, field string, value interface{}) (*Payment, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -211,13 +256,13 @@ func (s *Store) ExecutePayment(ctx context.Context, orderNo string) (*Payment, e
 	defer tx.Rollback(ctx)
 
 	// Update payment status
-	const updateQ = `
+	updateQ := fmt.Sprintf(`
 		UPDATE payment SET status = 'done', updated_at = NOW()
-		WHERE order_no = $1 AND status = 'created'
+		WHERE %s = $1 AND status = 'created'
 		RETURNING id, user_id, challenge_id, order_no, amount, status, created_at
-	`
+	`, field)
 	var p Payment
-	err = tx.QueryRow(ctx, updateQ, orderNo).
+	err = tx.QueryRow(ctx, updateQ, value).
 		Scan(&p.ID, &p.UserID, &p.ChallengeID, &p.OrderNo, &p.Amount, &p.Status, &p.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("payment not found or already executed")
