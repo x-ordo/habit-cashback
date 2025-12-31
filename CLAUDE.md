@@ -1,117 +1,105 @@
-# Claude Code 규칙
+# CLAUDE.md
 
-## Git 커밋/PR 규칙
-- "Generated with [Claude Code]" 문구 기입 금지
-- "Co-Authored-By: Claude" 문구 기입 금지
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+## Project Overview
 
-## Vibe Coding: Effective AI Collaboration
+HabitCashback (습관환급) is an MVP habit-tracking app that runs in the Toss Apps in Toss (WebView) environment. Users deposit money as collateral for habit challenges, complete daily photo/step proofs, and receive cashback if successful.
 
-### Philosophy
+## Build & Development Commands
 
-**"AI is a Pair Programming Partner, Not Just a Tool"**
-
-Collaboration with Claude is not mere code generation—it's a process of sharing thought processes and solving problems together.
-
-### 1. Context Provision Principles
-
-**Provide Sufficient Background:**
-```markdown
-# BAD: No context
-"Create a login feature"
-
-# GOOD: Rich context
-"Our project uses Next.js 14 + Supabase.
-Auth-related code is in /app/auth folder.
-Following existing patterns, add OAuth login.
-Reference: src/app/auth/login/page.tsx"
+### Frontend (`cd frontend`)
+```bash
+corepack enable && pnpm install   # Install dependencies
+pnpm dev                          # Vite dev server (port 5173)
+pnpm build                        # Production build
+pnpm lint                         # ESLint check
 ```
 
-**Context Checklist:**
-- [ ] Specify project tech stack
-- [ ] Provide relevant file paths
-- [ ] Mention existing patterns/conventions
-- [ ] Describe expected output format
-- [ ] State constraints and considerations
-
-### 2. Iterative Refinement Cycle
-
-```
-VIBE CODING CYCLE
-
-1. SPECIFY    → Describe desired functionality specifically
-2. GENERATE   → Claude generates initial code
-3. REVIEW     → Review generated code yourself
-4. REFINE     → Provide feedback for modifications
-5. VERIFY     → Run tests and verify edge cases
-
-Repeat 2-5 as needed
+### Backend (`cd backend`)
+```bash
+go mod tidy                       # Sync dependencies
+go run ./cmd/api                  # API server (port 8080)
+go run ./cmd/worker               # Background worker
+go build -v ./cmd/api             # Build API binary
+go build -v ./cmd/worker          # Build worker binary
+go test -v ./...                  # Run all tests
+go test -v ./internal/...         # Unit tests only
 ```
 
-### 3. Effective Prompt Patterns
-
-**Pattern 1: Role Assignment**
-```
-"You are a senior React developer with 10 years experience.
-Review this component and suggest improvements."
-```
-
-**Pattern 2: Step-by-Step Requests**
-```
-"Proceed in this order:
-1. Analyze current code problems
-2. Present 3 improvement options
-3. Refactor using the most suitable option
-4. Explain the changes"
+### Staging Deployment
+```bash
+cd infra/staging
+cp .env.example .env              # Configure: STAGING_DOMAIN, IMAGE_TAG, DB creds
+docker compose up -d
+curl http://localhost/health      # Health check
 ```
 
-**Pattern 3: Constraint Specification**
-```
-"Implement with these constraints:
-- Maintain existing API contract
-- No new dependencies
-- Test coverage >= 80%"
+### Apps in Toss Deployment
+```bash
+cd frontend
+npx ait deploy --api-key <KEY>    # Deploy to Toss CDN
 ```
 
-**Pattern 4: Example-Based Requests**
-```
-"Create OrderService.ts following the same pattern as
-UserService.ts. Especially follow the error handling approach."
-```
-
-### 4. Boundaries
-
-**DO NOT delegate to Claude:**
-- Security credential generation/management
-- Direct production DB manipulation
-- Code deployment without verification
-- Sensitive business logic full delegation
-
-**Human verification REQUIRED:**
-- Security-related code (auth, permissions)
-- Financial transaction logic
-- Personal data processing code
-- Irreversible operations
-- External API integration code
-
-### 5. Vibe Coding Checklist
+## Architecture
 
 ```
-Before Starting:
-- [ ] Shared CLAUDE.md file with Claude?
-- [ ] Explained project structure and conventions?
-- [ ] Clearly defined task objectives?
-
-During Coding:
-- [ ] Providing sufficient context?
-- [ ] Understanding generated code?
-- [ ] Giving specific feedback?
-
-After Coding:
-- [ ] Personally reviewed generated code?
-- [ ] Ran tests?
-- [ ] Verified security-related code?
-- [ ] Removed AI mentions from commit messages?
+┌─────────────────────────────────────────────────────────────┐
+│                    Toss WebView (Frontend)                  │
+│         React 18 + Vite + Emotion + TDS Components          │
+└────────────────────────────┬────────────────────────────────┘
+                             │ REST API (Bearer token)
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Go HTTP Server                          │
+│    ├── /v1/auth/*     Toss mTLS OAuth + Stub auth          │
+│    ├── /v1/me         User info                            │
+│    ├── /v1/challenges Challenge list                        │
+│    ├── /v1/payments/* TossPay integration                   │
+│    ├── /v1/proofs/*   Photo/step verification (EXIF)       │
+│    └── /v1/settlements Cashback status                      │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     PostgreSQL 16+                          │
+│   app_user, challenge, payment, participation, proof,       │
+│   settlement                                                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
+### Key Directories
+- `frontend/src/pages/` - Page components (Login, Home, Proof, History)
+- `frontend/src/lib/` - API client, storage, env config
+- `backend/cmd/api/` - HTTP server entry point with all route handlers
+- `backend/internal/store/` - PostgreSQL data access (pgx)
+- `backend/internal/toss/` - Toss mTLS client for Apps in Toss API
+- `backend/internal/payment/` - Payment service (Mock + TossPay)
+- `infra/staging/` - Docker Compose stack (Caddy + API + Worker + DB)
+
+### Key Patterns
+
+**Authentication**: HMAC-signed session tokens (`sv1.{payload}.{signature}`), stored in localStorage. Backend validates via auth middleware (`backend/cmd/api/main.go:747`).
+
+**Idempotency**: Payment and proof endpoints require `Idempotency-Key` header (UUID) for deduplication.
+
+**Graceful Fallbacks**:
+- No DATABASE_URL → in-memory store with hardcoded challenges
+- No mTLS certs → stub auth for development
+- No TossPay config → mock payment service
+
+**Rate Limiting**: 120 requests/minute per IP (fixed-window).
+
+## Git Commit Rules
+
+**CRITICAL - These rules must be followed:**
+- NO "Generated with [Claude Code]" in commit messages
+- NO "Co-Authored-By: Claude" in commit messages
+
+## Human Verification Required
+
+The following areas require human review before deployment:
+- Security-related code (auth, mTLS, session tokens)
+- Payment/financial transaction logic
+- Personal data processing
+- External API integration (Toss APIs)

@@ -1,6 +1,6 @@
 # HabitCashback (습관환급)
 
-[![CI](https://github.com/Prometheus-P/habit-cashback/actions/workflows/ci.yml/badge.svg)](https://github.com/Prometheus-P/habit-cashback/actions/workflows/ci.yml)
+[![CI](https://github.com/x-ordo/habit-cashback/actions/workflows/ci.yml/badge.svg)](https://github.com/x-ordo/habit-cashback/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/Go-1.22-00ADD8.svg)](https://golang.org/)
 [![Node Version](https://img.shields.io/badge/Node-20-339933.svg)](https://nodejs.org/)
@@ -122,4 +122,4 @@ npx ait deploy --api-key <YOUR_AIT_API_KEY>
 ## Contact
 
 - **Email**: parkdavid31@gmail.com
-- **Issues**: [GitHub Issues](https://github.com/Prometheus-P/habit-cashback/issues)
+- **Issues**: [GitHub Issues](https://github.com/x-ordo/habit-cashback/issues)

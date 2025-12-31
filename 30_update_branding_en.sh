@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage:
-#   OWNER="Prometheus-P" REPO="habitcashback" bash scripts/30_update_branding_en.sh
+#   OWNER="x-ordo" REPO="habit-cashback" bash scripts/30_update_branding_en.sh
 # Optional:
 #   HOMEPAGE_URL="https://..." (if you want repo homepage)
 #   APPLY_README_PATCH="1" (if you want sed-based README patch)

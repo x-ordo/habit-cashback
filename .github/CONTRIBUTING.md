@@ -12,7 +12,7 @@ HabitCashback에 기여해 주셔서 감사합니다.
 
 버그를 발견하셨다면:
 
-1. [GitHub Issues](https://github.com/Prometheus-P/habit-cashback/issues)에서 이미 보고된 버그인지 확인해주세요.
+1. [GitHub Issues](https://github.com/x-ordo/habit-cashback/issues)에서 이미 보고된 버그인지 확인해주세요.
 2. 새로운 버그라면 Bug Report 템플릿을 사용하여 이슈를 생성해주세요.
 
 ### Suggesting Features

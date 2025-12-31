@@ -19,10 +19,10 @@ git commit -m "init: habitcashback MVP"
 
 # 3) GitHub 리포 연결 (이미 생성했다면 remote add만)
 # gh cli가 있으면:
-gh repo create Prometheus-P/habitcashback --private --source=. --remote=origin --push
+gh repo create x-ordo/habitcashback --private --source=. --remote=origin --push
 
 # gh가 없으면:
-# git remote add origin git@github.com:Prometheus-P/habitcashback.git
+# git remote add origin git@github.com:x-ordo/habitcashback.git
 # git push -u origin main
 ```
 
@@ -36,7 +36,7 @@ bash scripts/40_bootstrap_staging_server_mac.sh <SERVER_IP> <SSH_USER>
 ## 3) GitHub Secrets 세팅 (Mac)
 ```bash
 bash scripts/30_set_staging_github_secrets_mac.sh \
-  Prometheus-P/habitcashback \
+  x-ordo/habitcashback \
   <STAGING_SSH_HOST> <STAGING_SSH_USER> <PATH_TO_PRIVATE_KEY> \
   <STAGING_DOMAIN>
 ```
@@ -63,7 +63,7 @@ npx ait deploy --api-key <YOUR_AIT_API_KEY>
 스크립트로 같이 넣으려면:
 ```bash
 bash scripts/30_set_staging_github_secrets_mac.sh \
-  Prometheus-P/habitcashback \
+  x-ordo/habitcashback \
   <STAGING_SSH_HOST> <STAGING_SSH_USER> <PATH_TO_PRIVATE_KEY> \
   <STAGING_DOMAIN> \
   <GHCR_USERNAME> <PATH_TO_GHCR_TOKEN_FILE>

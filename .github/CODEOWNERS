@@ -2,20 +2,20 @@
 # 이 파일은 코드 리뷰어를 자동으로 지정합니다.
 
 # 전체 리포지토리
-* @Prometheus-P
+* @x-ordo
 
 # Frontend
-/frontend/ @Prometheus-P
+/frontend/ @x-ordo
 
 # Backend
-/backend/ @Prometheus-P
+/backend/ @x-ordo
 
 # Infrastructure
-/infra/ @Prometheus-P
+/infra/ @x-ordo
 
 # Documentation
-*.md @Prometheus-P
-/docs/ @Prometheus-P
+*.md @x-ordo
+/docs/ @x-ordo
 
 # GitHub configurations
-/.github/ @Prometheus-P
+/.github/ @x-ordo
